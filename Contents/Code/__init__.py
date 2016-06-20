@@ -85,48 +85,48 @@ def Bookmarks(title):
 ######################################################################################
 # Takes query and sets up a http request to return and create objects from results
 
+def wrap_in_html(content):
+    return "<html><head></head><body>" + content + "</body></html>"
+
+
+def clean_response_markup(request):
+    request = "" + request[1:-1]
+    req_array = request.split("\\n")
+    a = ""
+    for item in req_array:
+        item = item.strip().replace("\"", "'").replace("\\", "")
+        a += item
+    return a
+
 @route(PREFIX + "/search")
 def Search(query):
 
     oc = ObjectContainer(title1 = query)
 
     #setup the search request url
-    request_url = "http://rawranime.tv/index.php?app=core&module=search&section=search&do=search&fromsearch=1"
-    referer = "http://rawranime.tv/index.php?app=core&module=search&do=search&fromMainBar=1"
-    values = {
-        'search_app':'anime',
-        'search_term':query,
-        'search_app':'anime',
-        'andor_type':'and',
-        'search_content':'both',
-        'search_author':'',
-        'search_date_start':'',
-        'search_date_end':'',
-        'search_app_filters[core][sortKey]':'date',
-        'search_app_filters[core][sortDir]':'0',
-        'search_app_filters[forums][noPreview]':'1',
-        'search_app_filters[forums][pCount]':'',
-        'search_app_filters[forums][pViews]':'',
-        'search_app_filters[forums][sortKey]':'date',
-        'search_app_filters[forums][sortDir]':'0',
-        'search_app_filters[calendar][sortKey]':'date',
-        'search_app_filters[calendar][sortDir]':'0',
-        'submit':'Search Now'
-        }
-
+    request_url = "http://rawranime.tv/index.php?ajax=anime&do=search&s=" + query
     #do http request for search data
-    page_data = HTML.ElementFromString(HTTP.Request(request_url, values = values, headers={'referer':referer}))
+    response_content = HTTP.Request(request_url, values={}, headers={'referer': "http://rawranime.tv"}).content
+    page_data = HTML.ElementFromString(wrap_in_html(clean_response_markup(response_content)))
 
-    for each in page_data.xpath("//div[@id='search_results']//li"):
-
-        show_url = each.xpath(".//a/@href")[0]
-        show_title = each.xpath(".//a/text()")[0].strip()
-        show_thumb = BASE_URL + each.xpath(".//img/@src")[0]
-        show_summary = each.xpath(".//h4/text()")[0]
+    for each in page_data.xpath("//a"):
+        show_url = each.xpath(".//@href")[0]
+        show_number = show_url.split("/anime/")[1].split("-")[0]
+        show_title = each.xpath(".//div[@class='quicksearch-title']/text()")[0].strip()
+        try:
+            show_subtitle = each.xpath(".//div[@class='quicksearch-subtitle']/text()")[0].strip()
+        except:
+            show_subtitle = ""
+        show_thumb = "http://static5.rawranime.tv/images/anime/" + show_number + "/image-small.jpg"
+        try:
+            show_summary = each.xpath(".//div[@class='quicksearch-synopsis']/text()")[0]
+        except:
+            show_summary = ""
 
         oc.add(DirectoryObject(
             key = Callback(PageEpisodes, show_title = show_title, show_url = show_url),
             title = show_title,
+            tagline = show_subtitle,
             thumb = Resource.ContentsOfURLWithFallback(url = show_thumb, fallback='icon-cover.png'),
             summary = show_summary
             )
