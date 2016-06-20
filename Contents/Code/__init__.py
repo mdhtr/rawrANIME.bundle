@@ -104,13 +104,13 @@ def Search(query):
     oc = ObjectContainer(title1 = query)
 
     #setup the search request url
-    request_url = "http://rawranime.tv/index.php?ajax=anime&do=search&s=" + query
+    request_url = BASE_URL + "/index.php?ajax=anime&do=search&s=" + query
     #do http request for search data
     response_content = HTTP.Request(request_url, values={}, headers={'referer': "http://rawranime.tv"}).content
     page_data = HTML.ElementFromString(wrap_in_html(clean_response_markup(response_content)))
 
     for each in page_data.xpath("//a"):
-        show_url = each.xpath(".//@href")[0]
+        show_url = BASE_URL + each.xpath(".//@href")[0]
         show_number = show_url.split("/anime/")[1].split("-")[0]
         show_title = each.xpath(".//div[@class='quicksearch-title']/text()")[0].strip()
         try:
@@ -142,17 +142,29 @@ def Search(query):
 ######################################################################################
 # Creates latest episode objects from the front page
 
-@route(PREFIX + "/latestcategory")
+@route(PREFIX + "/latestcategory") # this is the recent uploads. TODO pagination -- this is only the first page.
 def LatestCategory(title):
-
+    Log("Entered Latest Category")
     oc = ObjectContainer(title1 = title)
-    page_data = HTML.ElementFromURL(BASE_URL)
+    page_data = HTML.ElementFromURL(BASE_URL + "/recent")
 
-    for each in page_data.xpath("//div[@class='new_episode']"):
-
-        ep_url = each.xpath("./@onclick")[0].split("'")[1] + "subbed"
-        ep_title = each.xpath("./h3/text()")[0].strip() + " - " + each.xpath("./h4/b/text()")[0].strip()
-        ep_thumb = BASE_URL + each.xpath("./img/@src")[0]
+    for each in page_data.xpath("//div[@class='ep ']"):
+        Log(each.xpath(".//a[@class='ep-title']/text()"))
+        ep_title = ""
+        for item in each.xpath(".//a[@class='ep-title']/text()"):
+            if not(item == "\n" or item == ""):
+                ep_title += item
+        if ep_title == "":
+            ep_title += "Episode"
+        ep_title += " - " + each.xpath(".//div[@class='ep-number']/text()")[0].strip()
+        Log(ep_title)
+        ep_url = BASE_URL + each.xpath(".//a[@class='ep-bg']/@href")[0].strip()
+        Log(ep_url)
+        Log(each.xpath(".//a[@class='ep-bg']/@style"))
+        ep_thumb = "http:" + each.xpath(".//a[@class='ep-bg']/@style")[0].split('"').split("&quot;")[1]
+        Log(ep_thumb)
+        ep_release_date = each.xpath(".//div[@class='ep-airtimes']/span/text()")[0]
+        Log(ep_release_date)
 
         oc.add(PopupDirectoryObject(
             key = Callback(GetMirrors, ep_url = ep_url),
@@ -207,10 +219,13 @@ def PageEpisodes(show_title, show_url):
 
     oc = ObjectContainer(title1 = show_title)
     page_data = HTML.ElementFromURL(show_url)
-    show_thumb = BASE_URL + page_data.xpath("//div[@class='anime_info']//img/@data-original")[0]
-    show_ep_count = len(page_data.xpath("//div[@class='episode_box']"))
-    show_summary = page_data.xpath("//div[@class='anime_info_synopsis']/text()")[0]
-    eps_list = page_data.xpath("//div[@class='list_header_epnumber']/text()")
+    show_thumb = "http:" + page_data.xpath("//div[@id='anime-info-listimage']/@style")[0].split('"').split("&quot;")[1]
+    show_ep_count = len(page_data.xpath("//div[@class='ep ']"))
+    show_summary = ""
+    for line in page_data.xpath("//div[@id='anime-info-synopsis']//text()"):
+        if len(line.strip()) > 0 :
+            show_summary += line.strip() + "\n"
+    eps_list = page_data.xpath("//div[@class='ep ']")
 
     #set a start point and determine how many objects we will need
     offset = 0
@@ -221,8 +236,8 @@ def PageEpisodes(show_title, show_url):
 
         start_ep  = offset
         end_ep = offset + 30
-        start_ep_title = eps_list[(start_ep)].strip()
-        end_ep_title = eps_list[(end_ep - 1)].strip()
+        start_ep_title = extract_episode_title(eps_list[start_ep])
+        end_ep_title = extract_episode_title(eps_list[end_ep - 1])
 
         oc.add(DirectoryObject(
             key = Callback(ListEpisodes, show_title = show_title, show_url = show_url, start_ep = start_ep, end_ep = end_ep),
@@ -253,8 +268,8 @@ def PageEpisodes(show_title, show_url):
 
         start_ep = offset
         end_ep = (offset + (show_ep_count % 30))
-        start_ep_title = eps_list[(start_ep)].strip()
-        end_ep_title = eps_list[(end_ep - 1)].strip()
+        start_ep_title = extract_episode_title(eps_list[start_ep])
+        end_ep_title = extract_episode_title(eps_list[end_ep - 1])
 
         oc.add(DirectoryObject(
             key = Callback(ListEpisodes, show_title = show_title, show_url = show_url, start_ep = offset, end_ep = offset + (show_ep_count % 30)),
@@ -274,6 +289,13 @@ def PageEpisodes(show_title, show_url):
         )
         return oc
 
+
+def extract_episode_title(html_element):
+    return html_element.xpath(".//div[@class='ep-number']/text()")[0].strip() + " - " + \
+    html_element.xpath(".//a[@class='ep-title']/text()")[0].strip()
+
+
+
 ######################################################################################
 # Returns a list of VideoClipObjects for the episodes with a specified range
 
@@ -282,11 +304,11 @@ def ListEpisodes(show_title, show_url, start_ep, end_ep):
 
     oc = ObjectContainer(title1 = show_title)
     page_data = HTML.ElementFromURL(show_url)
-    eps_list = page_data.xpath("//div[@class='episode_box']")
+    eps_list = page_data.xpath("//div[@class='ep ']")
 
     for each in eps_list[int(start_ep):int(end_ep)]:
-        ep_url = each.xpath(".//a/@href")[0]
-        ep_title = "Episode " + each.xpath("./div[@class='list_header_epnumber']/text()")[0].strip() + " " + each.xpath("./div[@class='list_header_epname']/text()")[0].strip()
+        ep_url = each.xpath(".//a[@class='ep-bg']/@href")[0].strip()
+        ep_title = "Episode " + extract_episode_title(each)
 
         oc.add(PopupDirectoryObject(
             key = Callback(GetMirrors, ep_url = ep_url),
